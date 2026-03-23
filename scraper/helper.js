@@ -56,6 +56,40 @@ export const formatComments = (comments) => {
   return rows //.sort((a, b) => b.posted_time - a.posted_time); 
 };
 
+export const formatTopComments = (comments, limit = 5) => {
+  return comments.slice(0, limit).map((comment) => ({
+    comment: comment.text_raw,
+    freq: 1,
+    like_count: comment.like_counts || 0,
+    sentiment: "Loading...",
+    confidence: "Loading...",
+  }));
+};
+
+export const mergeAnalysisByComment = (comments, analyzedComments) => {
+  const analysisMap = new Map(
+    analyzedComments
+      .filter((item) => item?.comment)
+      .map((item) => [
+        item.comment,
+        {
+          sentiment: item.sentiment,
+          confidence: item.confidence,
+        },
+      ]),
+  );
+
+  return comments.map((comment) => {
+    const analysis = analysisMap.get(comment.comment);
+    return analysis
+      ? {
+          ...comment,
+          sentiment: analysis.sentiment,
+          confidence: analysis.confidence,
+        }
+      : comment;
+  });
+};
 
 
 export const getDuplicateSummary = (data) => {

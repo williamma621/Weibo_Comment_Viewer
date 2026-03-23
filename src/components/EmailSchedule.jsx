@@ -29,7 +29,7 @@ export default function EmailSchedule(props){
     };
 
     const startMonitor = async () => {
-        await window.api.setSchedule({schedules, postUrl: props.postUrl})
+        await window.api.setSchedule({schedules, postUrl: props.postUrl, email})
     }
     
     const sendMail = async() => {

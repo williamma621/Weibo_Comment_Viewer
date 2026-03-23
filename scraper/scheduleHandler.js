@@ -1,90 +1,106 @@
-import { fetchAllComments } from "../scraper/weiboApi.js";
-import { convertPostId, formatComments, getDuplicateSummary } from "../scraper/helper.js"
+const activeSchedules = new Map();
 
-const activeSchedules = new Map(); // Tracks running schedules by ID
+function buildExecutionTimes(scheduleArray) {
+  const executionTimes = [];
 
-export function startSchedule(scheduleArray, postUrl) {
-    // 1. Convert the schedule objects into a flat list of "ticks"
-    let executionTimes = [];
+  scheduleArray.forEach((segment) => {
+    const start = Number.parseInt(segment.startTime, 10);
+    const end = Number.parseInt(segment.endTime, 10);
+    const frequency = Number.parseInt(segment.frequency, 10);
 
-    scheduleArray.forEach(segment => {
-        const start = parseInt(segment.startTime);
-        const end = parseInt(segment.endTime);
-        const freq = parseInt(segment.frequency);
-        const unit = segment.unit || "minutes"; // Default to minutes if missing
-        
-        // Multiplier to convert units to milliseconds
-        const msMultiplier = unit === "minutes" ? 60000 : 1000;
-
-        for (let t = start + freq; t <= end; t += freq) {
-            executionTimes.push({
-                timeInMs: t * msMultiplier,
-                id: segment.id
-            });
-        }
-    });
-
-    // 2. Sort by time (just in case)
-    executionTimes.sort((a, b) => a.timeInMs - b.timeInMs);
-
-    // 3. Recursive Runner
-    const startTime = Date.now();
-
-    function runNext() {
-        if (executionTimes.length === 0) {
-            console.log(`Schedule ${scheduleArray[0].id} finished.`);
-            activeSchedules.delete(scheduleArray[0].id);
-            return;
-        }
-
-        const nextTask = executionTimes.shift();
-        const targetTime = startTime + nextTask.timeInMs;
-        const delay = targetTime - Date.now();
-
-        const timerId = setTimeout(() => {
-            performScrape(postUrl);
-            runNext(); // Schedule the next tick
-        }, Math.max(0, delay));
-
-        // Store timer so we can cancel it if needed
-        activeSchedules.set(nextTask.id, timerId);
+    if (
+      !Number.isFinite(start) ||
+      !Number.isFinite(end) ||
+      !Number.isFinite(frequency) ||
+      frequency <= 0 ||
+      end <= start
+    ) {
+      return;
     }
 
-    runNext();
+    for (let minuteOffset = start + frequency; minuteOffset <= end; minuteOffset += frequency) {
+      executionTimes.push(minuteOffset * 60 * 1000);
+    }
+  });
+
+  return executionTimes.sort((a, b) => a - b);
 }
 
-async function performScrape (postUrl){
-  const MAX_RETRIES = 3;
-  const urlParts = postUrl.match(/weibo\.com\/(\d+)\/([A-Za-z0-9]+)/);
-  if (!urlParts) throw new Error("Invalid Weibo URL");
-  const user_id = urlParts[1];       // "1742666164"
-  const post_id = urlParts[2];       // "QqyVupk9l"
-  const status_id = convertPostId(post_id);  // "5263307886035659"
-  let authWin;
-  let newCookie
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      // 1. Pull the cookie from the persistent store
-      let sessionCookie = store.get('weibo_cookie');
-      if (!sessionCookie) {
-        [authWin, newCookie] = await getWeiboCredentials(postUrl); //Authwindow and Cookie
-        store.set('weibo_cookie', newCookie); // Save it!
-      }
-      
-      const comments = await fetchAllComments({cookie: sessionCookie, sid: parseInt(status_id), uid: parseInt(user_id), authWin: authWin});
-      console.log("Scrape was Successful!")
-      return getDuplicateSummary(formatComments(comments))
-
-
-    } catch (error) {
-      if ( attempt < MAX_RETRIES ) {
-        // Refresh and update the store on failure
-        [authWin, newCookie] = await getWeiboCredentials(postUrl);
-        store.set('weibo_cookie', newCookie); 
-      } else {
-        throw error;
-      }
-    }
+function clearSchedule(scheduleId) {
+  const scheduleState = activeSchedules.get(scheduleId);
+  if (!scheduleState) {
+    return;
   }
+
+  scheduleState.timers.forEach((timerId) => clearTimeout(timerId));
+  activeSchedules.delete(scheduleId);
+}
+
+export function startSchedule(scheduleArray, options, runJob) {
+  const executionTimes = buildExecutionTimes(scheduleArray);
+  if (executionTimes.length === 0) {
+    throw new Error("No valid schedule windows were provided.");
+  }
+
+  if (typeof runJob !== "function") {
+    throw new Error("A schedule job runner is required.");
+  }
+
+  const scheduleId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const scheduleState = {
+    id: scheduleId,
+    options,
+    timers: [],
+    startedAt: new Date().toISOString(),
+  };
+
+  const baseTime = Date.now();
+
+  executionTimes.forEach((timeInMs, index) => {
+    const timerId = setTimeout(async () => {
+      try {
+        await runJob({
+          ...options,
+          scheduleId,
+          runIndex: index,
+        });
+      } catch (error) {
+        console.error(`Scheduled scrape ${scheduleId} run ${index} failed:`, error);
+      } finally {
+        const currentState = activeSchedules.get(scheduleId);
+        if (!currentState) {
+          return;
+        }
+
+        currentState.timers = currentState.timers.filter((currentTimer) => currentTimer !== timerId);
+        if (currentState.timers.length === 0) {
+          activeSchedules.delete(scheduleId);
+        }
+      }
+    }, Math.max(0, baseTime + timeInMs - Date.now()));
+
+    scheduleState.timers.push(timerId);
+  });
+
+  activeSchedules.set(scheduleId, scheduleState);
+
+  return {
+    scheduleId,
+    scheduledRuns: executionTimes.length,
+    nextRunAt: new Date(baseTime + executionTimes[0]).toISOString(),
+  };
+}
+
+export function stopSchedule(scheduleId) {
+  clearSchedule(scheduleId);
+}
+
+export function getActiveSchedules() {
+  return Array.from(activeSchedules.values()).map((schedule) => ({
+    id: schedule.id,
+    postUrl: schedule.options?.postUrl,
+    email: schedule.options?.email || "",
+    startedAt: schedule.startedAt,
+    remainingRuns: schedule.timers.length,
+  }));
 }

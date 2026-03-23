@@ -1,13 +1,23 @@
 import nodemailer from 'nodemailer';
 import puppeteer from 'puppeteer';
+import { getMailConfig } from './appConfig.js';
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: "williamma621@gmail.com",
-    pass: "mocp viui phxq skyr",
-  },
-});
+let transporter;
+
+function getTransporter() {
+  if (!transporter) {
+    const config = getMailConfig();
+    transporter = nodemailer.createTransport({
+      service: config.service,
+      auth: {
+        user: config.user,
+        pass: config.pass,
+      },
+    });
+  }
+
+  return transporter;
+}
 const htmlToPdfBuffer = async (html) => {
   const browser = await puppeteer.launch({ headless: "new" });
   const page = await browser.newPage();
@@ -18,12 +28,13 @@ const htmlToPdfBuffer = async (html) => {
 };
 
 
-export const sendMail = (email, data) => {
+export const sendMail = async (email, data) => {
+  const config = getMailConfig();
   const htmlBody = generateEmail(data);
   // const pdfBuffer = await htmlToPdfBuffer(htmlBody);
   console.log("123456789", data)
-  transporter.sendMail({
-    from: "williamma621@gmail.com",
+  return getTransporter().sendMail({
+    from: config.from || config.user,
     to: email,
     subject: "Hello",
     text: "Working!",
@@ -42,7 +53,7 @@ const generateEmail = (data) => {
   }, { total: 0, POS: 0, NEG: 0, MIXED: 0 });
 
   // 2. Extract specific lists
-  const top5 = data.comments.slice(0, 5);
+  const top5 = data.top_comments;
   const top5tableRows=top5.map(item => `
   <tr>
     <td>${item.comment}</td>

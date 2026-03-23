@@ -19,7 +19,7 @@ export async function fetchAllComments({ cookie, sid, uid, maxPages = 30, authWi
   // Warm up
   await client.get("https://weibo.com/");
 
-  let params = { flow: 1, is_reload: 1, is_show_bulletin: 2,
+  let params = { flow: 0, is_reload: 1, is_show_bulletin: 2,
     is_mix: 0, count: 20, fetch_level: 0, max_id: 0,
     id: sid, uid: uid,
   };

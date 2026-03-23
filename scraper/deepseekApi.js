@@ -1,70 +1,175 @@
 import OpenAI from "openai";
+import { getDeepseekConfig } from "./appConfig.js";
 
-// Initialize client (Replace with your actual key and DeepSeek base URL)
-const client = new OpenAI({
-  apiKey: "sk-c5a612559dd34d3bad39a081efc08374",
-  baseURL: "https://api.deepseek.com", 
-});
+let client;
+
+function getClient() {
+  if (!client) {
+    const config = getDeepseekConfig();
+    client = new OpenAI({
+      apiKey: config.apiKey,
+      baseURL: config.baseURL,
+    });
+  }
+
+  return client;
+}
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function analyzeSentiment(data, textCol = "comment", rowsPerRequest = 50) {
-  const n = data.length;
+function chunkArray(items, chunkSize) {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+async function analyzeSentimentBatch({
+  batch,
+  offset,
+  textCol,
+  maxRetries,
+  model,
+  systemPrompt,
+}) {
+  const payload = batch.map((item, index) => ({
+    i: offset + index,
+    text: item[textCol],
+  }));
+
+  const userMsg = `请对以下评论逐条进行情感判断，JSON 格式：{"results": [{"i": 0, "label": "POS|NEG|MIXED", "confidence": 0.9}]}. 评论：${JSON.stringify(payload)}`;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await getClient().chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMsg },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0,
+      });
+
+      const resultJson = JSON.parse(response.choices[0].message.content);
+      return Array.isArray(resultJson.results) ? resultJson.results : [];
+    } catch (error) {
+      console.error(`Sentiment batch starting at ${offset} attempt ${attempt + 1} failed:`, error.message);
+      if (attempt < maxRetries - 1) {
+        await sleep(1500 * Math.pow(2, attempt));
+      }
+    }
+  }
+
+  return batch.map((_, index) => ({
+    i: offset + index,
+    label: "MIXED",
+    confidence: 0.5,
+  }));
+}
+
+async function processWithConcurrency(tasks, concurrency, worker) {
+  const results = new Array(tasks.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (nextIndex < tasks.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await worker(tasks[currentIndex], currentIndex);
+    }
+  }
+
+  const workerCount = Math.min(concurrency, tasks.length);
+  await Promise.all(Array.from({ length: workerCount }, runWorker));
+  return results;
+}
+
+export async function analyzeSentiment(
+  data,
+  {
+    textCol = "comment",
+    rowsPerRequest = 100,
+    concurrency = 3,
+    maxRetries = 5,
+    model = "deepseek-chat",
+    existingResults = [],
+  } = {},
+) {
   const SYSTEM_PROMPT = `你是中文微博评论的情感分析器。判断情感倾向，只能输出：POS, NEG, MIXED。输出严格 JSON。`;
 
   // Clone data to avoid mutating original
   let processedData = [...data];
+  const existingResultMap = new Map(
+    existingResults
+      .filter((item) => item?.[textCol] && item?.sentiment && item?.confidence !== undefined)
+      .map((item) => [
+        item[textCol],
+        { sentiment: item.sentiment, confidence: item.confidence },
+      ]),
+  );
 
-  for (let start = 0; start < n; start += rowsPerRequest) {
-    const end = Math.min(start + rowsPerRequest, n);
-    const batch = data.slice(start, end);
+  const pendingRows = [];
 
-    // Prepare payload
-    const payload = batch.map((item, index) => ({
-      i: start + index,
-      text: item[textCol]
-    }));
-
-    const userMsg = `请对以下评论逐条进行情感判断，JSON 格式：{"results": [{"i": 0, "label": "POS|NEG|MIXED", "confidence": 0.9}]}. 评论：${JSON.stringify(payload)}`;
-
-    let success = false;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        const response = await client.chat.completions.create({
-          model: "deepseek-chat",
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: userMsg },
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0,
-        });
-
-        const resultJson = JSON.parse(response.choices[0].message.content);
-
-        // Merge results back into our objects
-        resultJson.results.forEach((res) => {
-          processedData[res.i].sentiment = res.label;
-          processedData[res.i].confidence = res.confidence;
-        });
-
-        success = true;
-        break; // Success! Exit retry loop
-      } catch (error) {
-        console.error(`Attempt ${attempt + 1} failed:`, error.message);
-        if (attempt === 4) {
-          // Final failure: set defaults
-          for (let i = start; i < end; i++) {
-            processedData[i].sentiment = "MIXED";
-            processedData[i].confidence = 0.5;
-          }
-        } else {
-          await sleep(1500 * Math.pow(2, attempt)); // Exponential backoff
-        }
-      }
+  processedData = processedData.map((item) => {
+    const existingMatch = existingResultMap.get(item[textCol]);
+    if (existingMatch) {
+      return {
+        ...item,
+        sentiment: existingMatch.sentiment,
+        confidence: existingMatch.confidence,
+      };
     }
+
+    pendingRows.push(item);
+    return item;
+  });
+
+  if (pendingRows.length === 0) {
+    return processedData;
   }
-  return processedData;
+
+  const batches = chunkArray(pendingRows, rowsPerRequest);
+  const batchResults = await processWithConcurrency(
+    batches,
+    concurrency,
+    (batch, batchIndex) =>
+      analyzeSentimentBatch({
+        batch,
+        offset: batchIndex * rowsPerRequest,
+        textCol,
+        maxRetries,
+        model,
+        systemPrompt: SYSTEM_PROMPT,
+      }),
+  );
+
+  const analyzedRows = [...pendingRows];
+  batchResults.flat().forEach((res) => {
+    if (analyzedRows[res.i]) {
+      analyzedRows[res.i].sentiment = res.label;
+      analyzedRows[res.i].confidence = res.confidence;
+    }
+  });
+
+  const analyzedResultMap = new Map(
+    analyzedRows.map((item) => [
+      item[textCol],
+      { sentiment: item.sentiment, confidence: item.confidence },
+    ]),
+  );
+
+  return processedData.map((item) => {
+    const analyzedMatch = analyzedResultMap.get(item[textCol]);
+    return analyzedMatch
+      ? {
+          ...item,
+          sentiment: analyzedMatch.sentiment,
+          confidence: analyzedMatch.confidence,
+        }
+      : item;
+  });
 }
 
 
@@ -98,7 +203,7 @@ export async function summarizeKeywords(commentsData, model = "deepseek-chat") {
   评论列表：${JSON.stringify(comments)}`;
 
   try {
-    const response = await client.chat.completions.create({
+    const response = await getClient().chat.completions.create({
       model: model,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },

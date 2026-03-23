@@ -5,19 +5,40 @@ export default function Home() {
   const [postUrl, setPostUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState("")
+  const [loginLoading, setLoginLoading] = useState(false);
   const navigate = useNavigate();
+
+  const handleLogin = async () => {
+    setLoginLoading(true);
+    try {
+      await window.api.loginWeibo();
+    } catch (error) {
+      console.error("Weibo login failed", error);
+    } finally {
+      setLoginLoading(false);
+    }
+  };
 
   const handleFetch = async () => {
     if (!postUrl) return alert("Please enter a URL");
     setLoading(true);
     try {
       setLoadingText("爬取中...")
-      const rawComments = await window.api.getCommentsPipeline({ postUrl });
+      const { comments: rawComments, topComments: rawTopComments } = await window.api.getCommentsPipeline({ postUrl });
       setLoadingText("Deepseek分析中...")
       const [comments, summary] = await window.api.deepseekAnalysisPipeline({ comments: rawComments, postUrl:postUrl });
       setLoadingText("结果保存中...")
-      console.log(rawComments.slice(0, 5))
-      const new_window_id = await window.api.saveScrape({ comments, summary, postUrl, top_comments: rawComments.slice(0, 5) });
+      const topComments = rawTopComments.map((topComment) => {
+        const analyzedComment = comments.find((comment) => comment.comment === topComment.comment);
+        return analyzedComment
+          ? {
+              ...topComment,
+              sentiment: analyzedComment.sentiment,
+              confidence: analyzedComment.confidence,
+            }
+          : topComment;
+      });
+      const new_window_id = await window.api.saveScrape({ comments, summary, postUrl, top_comments: topComments });
       navigate(`/dashboard/${new_window_id}`);
     } catch (error) {
       console.error("Scrape failed", error);
@@ -35,6 +56,16 @@ export default function Home() {
   <p className="text-slate-500 mb-8 text-lg">
     请在下方输入链接
   </p>
+
+  <div className="mb-4 flex w-full justify-end">
+    <button
+      onClick={handleLogin}
+      disabled={loginLoading || loading}
+      className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 font-medium shadow-sm hover:border-indigo-300 hover:text-indigo-600 transition-all disabled:opacity-50"
+    >
+      {loginLoading ? "登录中..." : "登录微博 / 切换账号"}
+    </button>
+  </div>
   
   <div className="w-full bg-white p-2 rounded-2xl shadow-soft border border-slate-100 flex items-center gap-2">
     <input 
