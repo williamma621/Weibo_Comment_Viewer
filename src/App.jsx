@@ -8,7 +8,7 @@ function App() {
     <BrowserRouter>
 <div className="flex h-screen bg-slate-50 text-slate-900">
   {/* Sidebar */}
-  <nav className="w-32 border-r border-slate-200 bg-white p-3 flex flex-col">
+  <nav className="w-44 border-r border-slate-200 bg-white p-3 flex flex-col overflow-hidden">
     <div className="mb-4">
       <h2 className="text-sm font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">
         微博抓取
@@ -20,7 +20,7 @@ function App() {
     >
       + New
     </Link>
-    <div className="mt-4">
+    <div className="mt-4 flex-1 min-h-0 overflow-hidden">
       <SavedScrapesList />
     </div>
   </nav>

@@ -40,20 +40,30 @@ export const sendMail = async (email, data) => {
     text: "Working!",
     html: htmlBody
     // attachments: [{filename: 'weibo_report.pdf',content: pdfBuffer}]
+    // attachments: [{filename: 'weibo_report.pdf',content: pdfBuffer}]
 
   });
 }
 
-const generateEmail = (data) => {
-  // 1. Calculate Summary Statistics
-  const stats = data.comments.reduce((acc, c) => {
-    acc.total += 1;
-    acc[c.sentiment] = (acc[c.sentiment] || 0) + 1;
-    return acc;
-  }, { total: 0, POS: 0, NEG: 0, MIXED: 0 });
+const SENTIMENT_KEYS = ["POS", "NEG", "MIXED", "UNKNOWN"];
 
-  // 2. Extract specific lists
+function buildSentimentStats(comments) {
+  const counts = { POS: 0, NEG: 0, MIXED: 0, UNKNOWN: 0 };
+
+  comments.forEach((comment) => {
+    const sentiment = SENTIMENT_KEYS.includes(comment.sentiment) ? comment.sentiment : "UNKNOWN";
+    counts[sentiment] += comment.freq ?? 0;
+  });
+
+  const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
+  return { total, counts };
+}
+
+const generateEmail = (data) => {
+  const stats = buildSentimentStats(data.comments);
+
   const top5 = data.top_comments;
+  const duplicatedComments = data.comments.filter((comment) => (comment.freq ?? 0) >= 3);
   const top5tableRows=top5.map(item => `
   <tr>
     <td>${item.comment}</td>
@@ -63,10 +73,8 @@ const generateEmail = (data) => {
 `).join(''); // The .join('') is crucial here
 
   const top10NegMixed = data.comments.filter(c => c.sentiment != 'POS');
-  console.log(top10NegMixed)
-  console.log(top10NegMixed.length == 0)
   let top10tableRows;
-  if (top10NegMixed){
+  if (top10NegMixed.length > 0){
     top10tableRows = top10NegMixed.map((item => `
     <tr>
       <td>${item.comment}</td>
@@ -75,11 +83,19 @@ const generateEmail = (data) => {
     </tr>
     `)).join('')}
    else {
-    top10tableRows = `<p>(none)</p>`
+    top10tableRows = `<tr><td colspan="3">(none)</td></tr>`
   }
-  
 
-  // 3. HTML Template
+  const duplicatedCommentRows = duplicatedComments.length > 0
+    ? duplicatedComments.map((item) => `
+    <tr>
+      <td>${item.comment}</td>
+      <td>${item.freq || item.like_count}</td>
+      <td>${item.sentiment || "UNKNOWN"}</td>
+    </tr>
+    `).join('')
+    : `<tr><td colspan="3">(none)</td></tr>`;
+
   return `
     <html>
       <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
@@ -88,10 +104,12 @@ const generateEmail = (data) => {
 
         <h2>Current Summary Statistics 当前可见评论统计</h2>
         <ul>
-          <li> Total (当前可见评论总量) ${stats.total}</li>
-          <li> POS(正面) ${stats.POS}</li>
-          <li> NEG(负面) ${stats.NEG}</li>
-          <li> MIXED(中性) ${stats.MIXED}</li>
+          <li>Visible total: ${stats.total}</li>
+          <li>当前可见评论总数： ${stats.total}</li>
+          <li>POS(正面) ${stats.counts.POS}</li>
+          <li>NEG(负面) ${stats.counts.NEG}</li>
+          <li>MIXED(中性) ${stats.counts.MIXED}</li>
+          <li>UNKNOWN(未评) ${stats.counts.UNKNOWN}</li>
         </ul>
 
         <h2>Top 5 Trending Comments</h2>
@@ -105,6 +123,20 @@ const generateEmail = (data) => {
           </thead>
           <tbody>
             ${top5tableRows}
+          </tbody>
+        </table>
+
+        <h2>Top duplicated Comments</h2>
+        <table border="1" cellPadding="8" style={{ borderCollapse: 'collapse', width: '100%' }}>
+          <thead>
+            <tr>
+              <th>Comment</th>
+              <th>Freq</th>
+              <th>Sentiment</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${duplicatedCommentRows}
           </tbody>
         </table>
 

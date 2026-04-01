@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+const SCRAPE_HISTORY_CHANGED_EVENT = "scrape-history-changed";
+
 export default function Home() {
   const [postUrl, setPostUrl] = useState("");
   const [loading, setLoading] = useState(false);
@@ -39,6 +41,7 @@ export default function Home() {
           : topComment;
       });
       const new_window_id = await window.api.saveScrape({ comments, summary, postUrl, top_comments: topComments });
+      window.dispatchEvent(new CustomEvent(SCRAPE_HISTORY_CHANGED_EVENT, { detail: { type: "created", postId: new_window_id } }));
       navigate(`/dashboard/${new_window_id}`);
     } catch (error) {
       console.error("Scrape failed", error);
