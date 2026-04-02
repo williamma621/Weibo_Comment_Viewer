@@ -8,6 +8,7 @@ export function registerIpcHandlers({
   sendMail,
   startSchedule,
   getWeiboCredentials,
+  onScheduleStatusChange,
 }) {
   ipcMain.handle("get-comments-pipeline", async (event, { postUrl }) => {
     return scrapeService.runCommentScrape(postUrl);
@@ -56,16 +57,29 @@ export function registerIpcHandlers({
     return schedulePatternRepository.listPatterns();
   });
 
-  ipcMain.handle("start-schedule", async (event, { schedules, postUrl, email }) => {
-    return startSchedule(
+  ipcMain.handle("start-schedule", async (event, { schedules, postId, postUrl, email }) => {
+    const scheduleResult = startSchedule(
       schedules,
-      { postUrl, email },
-      async ({ postUrl: scheduledPostUrl, email: scheduledEmail }) => {
-        const scrapeRecord = await scrapeService.runFullScrapePipeline({ postUrl: scheduledPostUrl });
-        if (scheduledEmail && scrapeService.hasBadData(scrapeRecord)) {
-          await sendMail(scheduledEmail, scrapeRecord);
+      { postId, postUrl, email },
+      async ({ postId: scheduledPostId, postUrl: scheduledPostUrl, email: scheduledEmail }) => {
+        try {
+          const scrapeRecord = await scrapeService.runScheduledScrapePipeline({
+            postId: scheduledPostId,
+            postUrl: scheduledPostUrl,
+          });
+          if (scheduledEmail && scrapeService.hasBadData(scrapeRecord)) {
+            await sendMail(scheduledEmail, scrapeRecord);
+          }
+        } finally {
+          if (typeof onScheduleStatusChange === "function") {
+            onScheduleStatusChange();
+          }
         }
       },
     );
+    if (typeof onScheduleStatusChange === "function") {
+      onScheduleStatusChange();
+    }
+    return scheduleResult;
   });
 }

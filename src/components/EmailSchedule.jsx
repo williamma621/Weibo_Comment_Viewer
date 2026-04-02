@@ -73,7 +73,7 @@ export default function EmailSchedule({ isOpen, onClose, postId, postUrl }) {
     setStatus({ type: "", message: "" });
 
     try {
-      const result = await window.api.setSchedule({ schedules, postUrl, email });
+      const result = await window.api.setSchedule({ schedules, postId, postUrl, email });
       setStatus({
         type: "success",
         message: `监测已启动，已安排 ${result.scheduledRuns} 次执行。`,

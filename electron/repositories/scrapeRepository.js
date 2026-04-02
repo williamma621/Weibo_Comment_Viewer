@@ -17,6 +17,17 @@ export function createScrapeRepository(dataPath) {
     await fs.mkdir(dataPath, { recursive: true });
   }
 
+  function buildScrapePayload({ id, postUrl, top_comments, comments, summary }) {
+    return {
+      id: id || Date.now().toString(),
+      url: postUrl,
+      top_comments,
+      comments,
+      summary,
+      date: new Date().toISOString(),
+    };
+  }
+
   async function getLatestScrapeForUrl(postUrl) {
     await ensureDataDir();
     const normalizedUrl = normalizePostUrl(postUrl);
@@ -44,14 +55,39 @@ export function createScrapeRepository(dataPath) {
 
   async function saveScrapeRecord({ postUrl, top_comments, comments, summary }) {
     await ensureDataDir();
-    const payload = {
-      id: Date.now().toString(),
-      url: postUrl,
+    const payload = buildScrapePayload({ postUrl, top_comments, comments, summary });
+    const filePath = path.join(dataPath, `${payload.id}.json`);
+    await fs.writeFile(filePath, JSON.stringify(payload));
+    return payload;
+  }
+
+  async function saveLatestScrapeForUrl({ postUrl, top_comments, comments, summary }) {
+    await ensureDataDir();
+    const latestScrape = await getLatestScrapeForUrl(postUrl);
+    const payload = buildScrapePayload({
+      id: latestScrape?.id,
+      postUrl,
       top_comments,
       comments,
       summary,
-      date: new Date().toISOString(),
-    };
+    });
+    const filePath = path.join(dataPath, `${payload.id}.json`);
+    await fs.writeFile(filePath, JSON.stringify(payload));
+    return payload;
+  }
+
+  async function saveScrapeById({ id, postUrl, top_comments, comments, summary }) {
+    if (!id) {
+      throw new Error("Scrape id is required to overwrite.");
+    }
+    await ensureDataDir();
+    const payload = buildScrapePayload({
+      id,
+      postUrl,
+      top_comments,
+      comments,
+      summary,
+    });
     const filePath = path.join(dataPath, `${payload.id}.json`);
     await fs.writeFile(filePath, JSON.stringify(payload));
     return payload;
@@ -99,6 +135,8 @@ export function createScrapeRepository(dataPath) {
     ensureDataDir,
     getLatestScrapeForUrl,
     saveScrapeRecord,
+    saveLatestScrapeForUrl,
+    saveScrapeById,
     listScrapeSummaries,
     getScrapeById,
     deleteScrapeById,

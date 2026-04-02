@@ -80,13 +80,85 @@ export function createScrapeService({
     return [analyzedComments, keywordSummary];
   }
 
-  async function runFullScrapePipeline({ postUrl }) {
+  async function runFullScrapePipeline({ postUrl, overwriteExisting = false }) {
     const { comments: rawComments, topComments: rawTopComments } = await runCommentScrape(postUrl);
     const [comments, summary] = await analyzeCommentsForPost(rawComments, postUrl);
     const topComments = mergeAnalysisByComment(rawTopComments, comments);
 
-    return scrapeRepository.saveScrapeRecord({
+    const saveScrape = overwriteExisting
+      ? scrapeRepository.saveLatestScrapeForUrl
+      : scrapeRepository.saveScrapeRecord;
+
+    return saveScrape({
       postUrl,
+      comments,
+      summary,
+      top_comments: topComments,
+    });
+  }
+
+  function buildAnalysisMaps(existingComments) {
+    const sentimentMap = new Map();
+    existingComments.forEach((item) => {
+      if (item?.comment && item.sentiment && item.confidence !== undefined) {
+        sentimentMap.set(item.comment, {
+          sentiment: item.sentiment,
+          confidence: item.confidence,
+        });
+      }
+    });
+    return sentimentMap;
+  }
+
+  function mergeSentimentResults(comments, existingMap, newMap) {
+    return comments.map((item) => {
+      const fresh = newMap.get(item.comment);
+      if (fresh) {
+        return { ...item, sentiment: fresh.sentiment, confidence: fresh.confidence };
+      }
+      const previous = existingMap.get(item.comment);
+      if (previous) {
+        return { ...item, sentiment: previous.sentiment, confidence: previous.confidence };
+      }
+      return item;
+    });
+  }
+
+  async function runScheduledScrapePipeline({ postId, postUrl }) {
+    const baseScrape = postId ? await scrapeRepository.getScrapeById(postId).catch(() => null) : null;
+    const targetUrl = baseScrape?.url || postUrl;
+    if (!targetUrl) {
+      throw new Error("Missing post URL for scheduled scrape.");
+    }
+
+    const { comments: rawComments, topComments: rawTopComments } = await runCommentScrape(targetUrl);
+    const existingMap = buildAnalysisMaps(baseScrape?.comments || []);
+
+    const newComments = rawComments.filter((item) => !existingMap.has(item.comment));
+    const analyzedNew = newComments.length > 0
+      ? await analyzeSentiment(newComments, { existingResults: [] })
+      : [];
+    const newMap = buildAnalysisMaps(analyzedNew);
+
+    const comments = mergeSentimentResults(rawComments, existingMap, newMap);
+    const summary = newComments.length > 0
+      ? await summarizeKeywords(newComments)
+      : baseScrape?.summary || null;
+
+    const topComments = mergeAnalysisByComment(rawTopComments, comments);
+
+    if (baseScrape?.id) {
+      return scrapeRepository.saveScrapeById({
+        id: baseScrape.id,
+        postUrl: targetUrl,
+        comments,
+        summary,
+        top_comments: topComments,
+      });
+    }
+
+    return scrapeRepository.saveLatestScrapeForUrl({
+      postUrl: targetUrl,
       comments,
       summary,
       top_comments: topComments,
@@ -101,6 +173,7 @@ export function createScrapeService({
     runCommentScrape,
     analyzeCommentsForPost,
     runFullScrapePipeline,
+    runScheduledScrapePipeline,
     hasBadData,
   };
 }

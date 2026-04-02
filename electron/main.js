@@ -1,8 +1,8 @@
-import { app, BrowserWindow, session, ipcMain } from "electron";
+import { app, BrowserWindow, session, ipcMain, Tray, Menu, nativeImage, powerSaveBlocker } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
 import { sendMail } from "../scraper/mailService.js";
-import { startSchedule } from "../scraper/scheduleHandler.js";
+import { startSchedule, getActiveSchedules } from "../scraper/scheduleHandler.js";
 import { createScrapeRepository } from "./repositories/scrapeRepository.js";
 import { createSchedulePatternRepository } from "./repositories/schedulePatternRepository.js";
 import { createWeiboAuthService } from "./services/weiboAuthService.js";
@@ -19,6 +19,7 @@ const __dirname = path.dirname(__filename);
 const isDev = !app.isPackaged;
 const DATA_PATH = path.join(app.getPath('userData'), 'scrapes');
 const SCHEDULE_PATTERN_PATH = path.join(app.getPath("appData"), "weibo-comment-viewer", "saved-schedule-patterns");
+const TRAY_ICON_PATH = path.join(__dirname, "assets", "trayTemplate.png");
 const WEIBO_DOMAIN = ".weibo.com";
 const WEIBO_LOGIN_URL = "https://weibo.com";
 const scrapeRepository = createScrapeRepository(DATA_PATH);
@@ -33,6 +34,90 @@ const scrapeService = createScrapeService({
   scrapeRepository,
 });
 
+let mainWindow;
+let tray;
+let isQuitting = false;
+let powerSaveBlockerId = null;
+
+function hasActiveSchedules() {
+  return getActiveSchedules().length > 0;
+}
+
+function ensureTray() {
+  if (tray) {
+    return;
+  }
+
+  const trayImage = nativeImage.createFromPath(TRAY_ICON_PATH);
+  if (process.platform === "darwin") {
+    trayImage.setTemplateImage(true);
+  }
+
+  tray = new Tray(trayImage);
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: "Show App",
+      click: () => {
+        if (!mainWindow) {
+          createWindow();
+        } else {
+          mainWindow.show();
+          if (process.platform === "darwin") {
+            app.dock.show();
+          }
+        }
+      },
+    },
+    {
+      label: "Quit",
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+  tray.setToolTip("Weibo Comment Viewer is running");
+  tray.setContextMenu(contextMenu);
+  tray.on("click", () => {
+    if (!mainWindow) {
+      createWindow();
+      return;
+    }
+
+    if (mainWindow.isVisible()) {
+      mainWindow.hide();
+      if (process.platform === "darwin") {
+        app.dock.hide();
+      }
+    } else {
+      mainWindow.show();
+      if (process.platform === "darwin") {
+        app.dock.show();
+      }
+    }
+  });
+}
+
+function updatePowerSaveBlocker(active) {
+  if (active && powerSaveBlockerId === null) {
+    powerSaveBlockerId = powerSaveBlocker.start("prevent-app-suspension");
+    return;
+  }
+
+  if (!active && powerSaveBlockerId !== null) {
+    powerSaveBlocker.stop(powerSaveBlockerId);
+    powerSaveBlockerId = null;
+  }
+}
+
+function updateBackgroundMode() {
+  const active = hasActiveSchedules();
+  if (active) {
+    ensureTray();
+  }
+  updatePowerSaveBlocker(active);
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
@@ -40,6 +125,21 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
     },
+  });
+  mainWindow = win;
+
+  win.on("close", (event) => {
+    if (isQuitting) {
+      return;
+    }
+    if (hasActiveSchedules()) {
+      event.preventDefault();
+      win.hide();
+      ensureTray();
+      if (process.platform === "darwin") {
+        app.dock.hide();
+      }
+    }
   });
 
   if (isDev) {
@@ -61,9 +161,28 @@ registerIpcHandlers({
   sendMail,
   startSchedule,
   getWeiboCredentials,
+  onScheduleStatusChange: updateBackgroundMode,
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  updateBackgroundMode();
+});
+
+app.on("activate", () => {
+  if (mainWindow) {
+    mainWindow.show();
+    if (process.platform === "darwin") {
+      app.dock.show();
+    }
+  } else {
+    createWindow();
+  }
+});
+
+app.on("before-quit", () => {
+  isQuitting = true;
+});
 
 
 
