@@ -12,4 +12,6 @@ contextBridge.exposeInMainWorld("api", {
   saveSchedulePattern: (data) => ipcRenderer.invoke("save-schedule-pattern", data),
   getSavedSchedulePatterns: () => ipcRenderer.invoke("get-saved-schedule-patterns"),
   setSchedule: (data) => ipcRenderer.invoke("start-schedule", data),
+  getActiveSchedules: () => ipcRenderer.invoke("get-active-schedules"),
+  stopSchedule: (scheduleId) => ipcRenderer.invoke("stop-schedule", scheduleId),
 });

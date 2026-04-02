@@ -36,8 +36,8 @@ export const sendMail = async (email, data) => {
   return getTransporter().sendMail({
     from: config.from || config.user,
     to: email,
-    subject: "Hello",
-    text: "Working!",
+    subject: "微博检测报告 Weibo Monitoring",
+    // text: "Working!",
     html: htmlBody
     // attachments: [{filename: 'weibo_report.pdf',content: pdfBuffer}]
     // attachments: [{filename: 'weibo_report.pdf',content: pdfBuffer}]
@@ -56,7 +56,9 @@ function buildSentimentStats(comments) {
   });
 
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
-  return { total, counts };
+  const percent = {POS: counts.POS / total * 100, NEG: counts.NEG / total * 100, MIXED: counts.MIXED / total * 100, UNKNOWN: counts.UNKNOWN / total * 100, }
+
+  return { total, counts, percent };
 }
 
 const generateEmail = (data) => {
@@ -106,10 +108,10 @@ const generateEmail = (data) => {
         <ul>
           <li>Visible total: ${stats.total}</li>
           <li>当前可见评论总数： ${stats.total}</li>
-          <li>POS(正面) ${stats.counts.POS}</li>
-          <li>NEG(负面) ${stats.counts.NEG}</li>
-          <li>MIXED(中性) ${stats.counts.MIXED}</li>
-          <li>UNKNOWN(未评) ${stats.counts.UNKNOWN}</li>
+          <li>POS(正面) ${stats.counts.POS} (${stats.percent.POS} %) </li>
+          <li>NEG(负面) ${stats.counts.NEG} (${stats.percent.NEG} %)</li>
+          <li>MIXED(中性) ${stats.counts.MIXED} (${stats.percent.MIXED} %)</li>
+          <li>UNKNOWN(未评) ${stats.counts.UNKNOWN} (${stats.percent.UNKNOWN} %) </li>
         </ul>
 
         <h2>Top 5 Trending Comments</h2>
@@ -140,7 +142,7 @@ const generateEmail = (data) => {
           </tbody>
         </table>
 
-        <h2>Top 10 Negative / Mixed Comments</h2>
+        <h2>All Negative / Mixed Comments</h2>
         <table border="1" cellPadding="8" style={{ borderCollapse: 'collapse', width: '100%' }}>
           <thead>
             <tr>

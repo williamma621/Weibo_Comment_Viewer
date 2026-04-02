@@ -36,7 +36,7 @@ function clearSchedule(scheduleId) {
   activeSchedules.delete(scheduleId);
 }
 
-export function startSchedule(scheduleArray, options, runJob) {
+export function startSchedule(scheduleArray, options, runJob, config = {}) {
   const executionTimes = buildExecutionTimes(scheduleArray);
   if (executionTimes.length === 0) {
     throw new Error("No valid schedule windows were provided.");
@@ -46,7 +46,7 @@ export function startSchedule(scheduleArray, options, runJob) {
     throw new Error("A schedule job runner is required.");
   }
 
-  const scheduleId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const scheduleId = config.scheduleId || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const scheduleState = {
     id: scheduleId,
     options,
@@ -54,9 +54,13 @@ export function startSchedule(scheduleArray, options, runJob) {
     startedAt: new Date().toISOString(),
   };
 
-  const baseTime = Date.now();
+  const baseTime = Number.isFinite(config.baseTime) ? config.baseTime : Date.now();
+  scheduleState.startedAt = new Date(baseTime).toISOString();
 
   executionTimes.forEach((timeInMs, index) => {
+    if (baseTime + timeInMs <= Date.now()) {
+      return;
+    }
     const timerId = setTimeout(async () => {
       try {
         await runJob({
@@ -73,8 +77,17 @@ export function startSchedule(scheduleArray, options, runJob) {
         }
 
         currentState.timers = currentState.timers.filter((currentTimer) => currentTimer !== timerId);
+        if (typeof config.onRunComplete === "function") {
+          config.onRunComplete({
+            scheduleId,
+            remainingRuns: currentState.timers.length,
+          });
+        }
         if (currentState.timers.length === 0) {
           activeSchedules.delete(scheduleId);
+          if (typeof config.onScheduleComplete === "function") {
+            config.onScheduleComplete({ scheduleId });
+          }
         }
       }
     }, Math.max(0, baseTime + timeInMs - Date.now()));
@@ -84,10 +97,13 @@ export function startSchedule(scheduleArray, options, runJob) {
 
   activeSchedules.set(scheduleId, scheduleState);
 
+  const nextRunOffset = executionTimes.find((timeInMs) => baseTime + timeInMs > Date.now());
+
   return {
     scheduleId,
     scheduledRuns: executionTimes.length,
-    nextRunAt: new Date(baseTime + executionTimes[0]).toISOString(),
+    nextRunAt: nextRunOffset ? new Date(baseTime + nextRunOffset).toISOString() : null,
+    baseTime,
   };
 }
 

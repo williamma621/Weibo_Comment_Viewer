@@ -5,8 +5,11 @@ export function registerIpcHandlers({
   scrapeService,
   scrapeRepository,
   schedulePatternRepository,
+  scheduleRepository,
   sendMail,
   startSchedule,
+  stopSchedule,
+  getActiveSchedules,
   getWeiboCredentials,
   onScheduleStatusChange,
 }) {
@@ -57,6 +60,27 @@ export function registerIpcHandlers({
     return schedulePatternRepository.listPatterns();
   });
 
+  ipcMain.handle("get-active-schedules", async () => {
+    return getActiveSchedules();
+  });
+
+  ipcMain.handle("stop-schedule", async (event, scheduleId) => {
+    if (!scheduleId) {
+      throw new Error("Schedule id is required.");
+    }
+    stopSchedule(scheduleId);
+    if (scheduleRepository) {
+      await scheduleRepository.updateSchedule(scheduleId, {
+        status: "stopped",
+        remainingRuns: 0,
+      });
+    }
+    if (typeof onScheduleStatusChange === "function") {
+      onScheduleStatusChange();
+    }
+    return { ok: true };
+  });
+
   ipcMain.handle("start-schedule", async (event, { schedules, postId, postUrl, email }) => {
     const scheduleResult = startSchedule(
       schedules,
@@ -76,7 +100,35 @@ export function registerIpcHandlers({
           }
         }
       },
+      {
+        onRunComplete: async ({ scheduleId, remainingRuns }) => {
+          if (!scheduleRepository) {
+            return;
+          }
+          await scheduleRepository.updateSchedule(scheduleId, {
+            lastRunAt: new Date().toISOString(),
+            remainingRuns,
+          });
+        },
+        onScheduleComplete: async ({ scheduleId }) => {
+          if (!scheduleRepository) {
+            return;
+          }
+          await scheduleRepository.updateSchedule(scheduleId, {
+            status: "completed",
+            remainingRuns: 0,
+          });
+        },
+      },
     );
+    if (scheduleRepository) {
+      await scheduleRepository.saveActiveSchedule({
+        id: scheduleResult.scheduleId,
+        schedules,
+        options: { postId, postUrl, email },
+        startedAt: new Date(scheduleResult.baseTime).toISOString(),
+      });
+    }
     if (typeof onScheduleStatusChange === "function") {
       onScheduleStatusChange();
     }

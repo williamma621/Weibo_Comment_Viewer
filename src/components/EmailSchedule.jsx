@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { schedulePresets } from "../data/schedulePresets";
 
 function createEmptySchedule() {
   return {
@@ -13,30 +14,34 @@ function createEmptySchedule() {
 export default function EmailSchedule({ isOpen, onClose, postId, postUrl }) {
   const [email, setEmail] = useState("");
   const [schedules, setSchedules] = useState([createEmptySchedule()]);
-  const [patternName, setPatternName] = useState("");
-  const [savedPatterns, setSavedPatterns] = useState([]);
-  const [selectedPatternId, setSelectedPatternId] = useState("");
+  const [selectedPresetId, setSelectedPresetId] = useState(schedulePresets[0]?.id || "");
+  const [activeSchedules, setActiveSchedules] = useState([]);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [sendingMail, setSendingMail] = useState(false);
   const [startingMonitor, setStartingMonitor] = useState(false);
-  const [savingPattern, setSavingPattern] = useState(false);
+  const [loadingSchedules, setLoadingSchedules] = useState(false);
+  const [stoppingScheduleId, setStoppingScheduleId] = useState("");
+
+  const presets = useMemo(() => schedulePresets, []);
 
   useEffect(() => {
     if (!isOpen) {
       return;
     }
 
-    const loadPatterns = async () => {
+    const loadActiveSchedules = async () => {
+      setLoadingSchedules(true);
       try {
-        const patterns = await window.api.getSavedSchedulePatterns();
-        setSavedPatterns(patterns);
-        setSelectedPatternId((current) => current || patterns[0]?.id || "");
+        const data = await window.api.getActiveSchedules();
+        setActiveSchedules(data || []);
       } catch (error) {
-        console.error("Failed to load saved schedule patterns", error);
+        console.error("Failed to load active schedules", error);
+      } finally {
+        setLoadingSchedules(false);
       }
     };
 
-    loadPatterns();
+    loadActiveSchedules();
   }, [isOpen]);
 
   useEffect(() => {
@@ -74,6 +79,8 @@ export default function EmailSchedule({ isOpen, onClose, postId, postUrl }) {
 
     try {
       const result = await window.api.setSchedule({ schedules, postId, postUrl, email });
+      const data = await window.api.getActiveSchedules();
+      setActiveSchedules(data || []);
       setStatus({
         type: "success",
         message: `监测已启动，已安排 ${result.scheduledRuns} 次执行。`,
@@ -101,45 +108,40 @@ export default function EmailSchedule({ isOpen, onClose, postId, postUrl }) {
     }
   };
 
-  const savePattern = async () => {
-    setSavingPattern(true);
-    setStatus({ type: "", message: "" });
-
-    try {
-      const savedPattern = await window.api.saveSchedulePattern({
-        name: patternName,
-        schedules,
-      });
-      const patterns = await window.api.getSavedSchedulePatterns();
-      setSavedPatterns(patterns);
-      setSelectedPatternId(savedPattern.id);
-      setPatternName(savedPattern.name);
-      setStatus({ type: "success", message: `已保存排班模板“${savedPattern.name}”。` });
-    } catch (error) {
-      console.error("Failed to save schedule pattern", error);
-      setStatus({ type: "error", message: "模板保存失败，请先输入名称。" });
-    } finally {
-      setSavingPattern(false);
-    }
-  };
-
-  const loadPattern = () => {
-    const selectedPattern = savedPatterns.find((pattern) => pattern.id === selectedPatternId);
-    if (!selectedPattern) {
-      setStatus({ type: "error", message: "请先选择一个已保存模板。" });
+  const applyPreset = () => {
+    const preset = presets.find((item) => item.id === selectedPresetId);
+    if (!preset) {
+      setStatus({ type: "error", message: "请先选择一个预设模板。" });
       return;
     }
-
     setSchedules(
-      selectedPattern.schedules.length > 0
-        ? selectedPattern.schedules.map((schedule) => ({
+      preset.schedules.length > 0
+        ? preset.schedules.map((schedule) => ({
             ...schedule,
             id: Date.now() + Math.random(),
           }))
         : [createEmptySchedule()],
     );
-    setPatternName(selectedPattern.name);
-    setStatus({ type: "success", message: `已载入模板“${selectedPattern.name}”。` });
+    setStatus({ type: "success", message: `已载入预设“${preset.name}”。` });
+  };
+
+  const stopSchedule = async (scheduleId) => {
+    if (!scheduleId) {
+      return;
+    }
+    setStoppingScheduleId(scheduleId);
+    setStatus({ type: "", message: "" });
+    try {
+      await window.api.stopSchedule(scheduleId);
+      const data = await window.api.getActiveSchedules();
+      setActiveSchedules(data || []);
+      setStatus({ type: "success", message: "监测已停止。" });
+    } catch (error) {
+      console.error("Failed to stop schedule", error);
+      setStatus({ type: "error", message: "停止监测失败，请稍后重试。" });
+    } finally {
+      setStoppingScheduleId("");
+    }
   };
 
   if (!isOpen) {
@@ -153,7 +155,7 @@ export default function EmailSchedule({ isOpen, onClose, postId, postUrl }) {
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="relative z-10 max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl shadow-slate-900/20">
+      <div className="relative z-10 max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl shadow-slate-900/20">
         <div className="flex items-start justify-between gap-6 border-b border-slate-100 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-900 px-8 py-6 text-white">
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-indigo-200">Monitoring</p>
@@ -172,7 +174,7 @@ export default function EmailSchedule({ isOpen, onClose, postId, postUrl }) {
         </div>
 
         <div className="max-h-[calc(90vh-108px)] overflow-y-auto px-8 py-7">
-          <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="grid gap-6 lg:grid-cols-[1.25fr_0.95fr]">
             <section className="space-y-6">
               <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                 <label className="mb-2 block text-sm font-semibold text-slate-800">提醒邮箱</label>
@@ -191,47 +193,28 @@ export default function EmailSchedule({ isOpen, onClose, postId, postUrl }) {
               <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex flex-col gap-4 md:flex-row md:items-end">
                   <label className="min-w-0 flex-1 space-y-2 text-sm font-medium text-slate-700">
-                    <span>保存当前排班模板</span>
-                    <input
-                      type="text"
-                      value={patternName}
-                      onChange={(e) => setPatternName(e.target.value)}
-                      placeholder="例如：午间舆情监测"
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={savePattern}
-                    disabled={savingPattern}
-                    className="rounded-2xl border border-slate-200 bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {savingPattern ? "保存中..." : "保存模板"}
-                  </button>
-                </div>
-
-                <div className="mt-4 flex flex-col gap-4 md:flex-row md:items-end">
-                  <label className="min-w-0 flex-1 space-y-2 text-sm font-medium text-slate-700">
-                    <span>载入已保存模板</span>
+                    <span>使用预设排班</span>
                     <select
-                      value={selectedPatternId}
-                      onChange={(e) => setSelectedPatternId(e.target.value)}
+                      value={selectedPresetId}
+                      onChange={(e) => setSelectedPresetId(e.target.value)}
                       className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100"
                     >
-                      <option value="">选择模板</option>
-                      {savedPatterns.map((pattern) => (
-                        <option key={pattern.id} value={pattern.id}>
-                          {pattern.name}
+                      {presets.map((preset) => (
+                        <option key={preset.id} value={preset.id}>
+                          {preset.name}
                         </option>
                       ))}
                     </select>
+                    <p className="text-xs leading-5 text-slate-500">
+                      {presets.find((preset) => preset.id === selectedPresetId)?.description || "请选择一个预设。"}
+                    </p>
                   </label>
                   <button
                     type="button"
-                    onClick={loadPattern}
+                    onClick={applyPreset}
                     className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
                   >
-                    载入模板
+                    应用预设
                   </button>
                 </div>
               </div>
@@ -240,7 +223,7 @@ export default function EmailSchedule({ isOpen, onClose, postId, postUrl }) {
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="text-lg font-bold text-slate-900">监测时间段</h4>
-                    <p className="text-sm text-slate-500">按分钟填写区间与触发频率。</p>
+                    <p className="text-sm text-slate-500">按分钟填写区间与触发频率，或先应用预设。</p>
                   </div>
                   <button
                     type="button"
@@ -343,6 +326,40 @@ export default function EmailSchedule({ isOpen, onClose, postId, postUrl }) {
                     {sendingMail ? "发送中..." : "立刻发送邮件"}
                   </button>
                 </div>
+              </div>
+
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-3 flex items-center justify-between">
+                  <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Active Schedules</h4>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                    {activeSchedules.length}
+                  </span>
+                </div>
+                {loadingSchedules ? (
+                  <p className="text-sm text-slate-500">加载中...</p>
+                ) : activeSchedules.length === 0 ? (
+                  <p className="text-sm text-slate-500">当前没有进行中的监测。</p>
+                ) : (
+                  <div className="space-y-3">
+                    {activeSchedules.map((item) => (
+                      <div key={item.id} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold text-slate-900">正在监测</p>
+                          <button
+                            type="button"
+                            onClick={() => stopSchedule(item.id)}
+                            disabled={stoppingScheduleId === item.id}
+                            className="text-xs font-semibold text-rose-600 transition hover:text-rose-700 disabled:opacity-60"
+                          >
+                            {stoppingScheduleId === item.id ? "停止中..." : "停止"}
+                          </button>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">剩余 {item.remainingRuns} 次执行</p>
+                        <p className="mt-1 text-xs text-slate-500 break-all">{item.postUrl || item.email}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">

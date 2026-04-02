@@ -2,9 +2,10 @@ import { app, BrowserWindow, session, ipcMain, Tray, Menu, nativeImage, powerSav
 import path from "path";
 import { fileURLToPath } from "url";
 import { sendMail } from "../scraper/mailService.js";
-import { startSchedule, getActiveSchedules } from "../scraper/scheduleHandler.js";
+import { startSchedule, getActiveSchedules, stopSchedule } from "../scraper/scheduleHandler.js";
 import { createScrapeRepository } from "./repositories/scrapeRepository.js";
 import { createSchedulePatternRepository } from "./repositories/schedulePatternRepository.js";
+import { createScheduleRepository } from "./repositories/scheduleRepository.js";
 import { createWeiboAuthService } from "./services/weiboAuthService.js";
 import { createScrapeService } from "./services/scrapeService.js";
 import { registerIpcHandlers } from "./ipc/registerHandlers.js";
@@ -19,11 +20,13 @@ const __dirname = path.dirname(__filename);
 const isDev = !app.isPackaged;
 const DATA_PATH = path.join(app.getPath('userData'), 'scrapes');
 const SCHEDULE_PATTERN_PATH = path.join(app.getPath("appData"), "weibo-comment-viewer", "saved-schedule-patterns");
+const ACTIVE_SCHEDULE_PATH = path.join(app.getPath("appData"), "weibo-comment-viewer", "active-schedules");
 const TRAY_ICON_PATH = path.join(__dirname, "assets", "trayTemplate.png");
 const WEIBO_DOMAIN = ".weibo.com";
 const WEIBO_LOGIN_URL = "https://weibo.com";
 const scrapeRepository = createScrapeRepository(DATA_PATH);
 const schedulePatternRepository = createSchedulePatternRepository(SCHEDULE_PATTERN_PATH);
+const scheduleRepository = createScheduleRepository(ACTIVE_SCHEDULE_PATH);
 const authService = createWeiboAuthService({
   session,
   store,
@@ -118,6 +121,53 @@ function updateBackgroundMode() {
   updatePowerSaveBlocker(active);
 }
 
+async function restoreActiveSchedules() {
+  const persistedSchedules = await scheduleRepository.listActiveSchedules();
+  if (persistedSchedules.length === 0) {
+    return;
+  }
+
+  persistedSchedules.forEach((schedule) => {
+    const baseTime = Date.parse(schedule.startedAt || "");
+    startSchedule(
+      schedule.schedules,
+      schedule.options,
+      async ({ postId: scheduledPostId, postUrl: scheduledPostUrl, email: scheduledEmail }) => {
+        try {
+          const scrapeRecord = await scrapeService.runScheduledScrapePipeline({
+            postId: scheduledPostId,
+            postUrl: scheduledPostUrl,
+          });
+          if (scheduledEmail && scrapeService.hasBadData(scrapeRecord)) {
+            await sendMail(scheduledEmail, scrapeRecord);
+          }
+        } catch (error) {
+          console.error("Restored schedule run failed:", error);
+        } finally {
+          updateBackgroundMode();
+        }
+      },
+      {
+        baseTime: Number.isFinite(baseTime) ? baseTime : Date.now(),
+        scheduleId: schedule.id,
+        onRunComplete: async ({ scheduleId, remainingRuns }) => {
+          await scheduleRepository.updateSchedule(scheduleId, {
+            lastRunAt: new Date().toISOString(),
+            remainingRuns,
+          });
+        },
+        onScheduleComplete: async ({ scheduleId }) => {
+          await scheduleRepository.updateSchedule(scheduleId, {
+            status: "completed",
+            remainingRuns: 0,
+          });
+          updateBackgroundMode();
+        },
+      },
+    );
+  });
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
@@ -158,15 +208,20 @@ registerIpcHandlers({
   scrapeService,
   scrapeRepository,
   schedulePatternRepository,
+  scheduleRepository,
   sendMail,
   startSchedule,
+  stopSchedule,
+  getActiveSchedules,
   getWeiboCredentials,
   onScheduleStatusChange: updateBackgroundMode,
 });
 
 app.whenReady().then(() => {
   createWindow();
-  updateBackgroundMode();
+  restoreActiveSchedules().finally(() => {
+    updateBackgroundMode();
+  });
 });
 
 app.on("activate", () => {
