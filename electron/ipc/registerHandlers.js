@@ -13,6 +13,17 @@ export function registerIpcHandlers({
   getWeiboCredentials,
   onScheduleStatusChange,
 }) {
+  ipcMain.handle("open-user-data-folder", async () => {
+    const { shell } = await import("electron");
+    const { dirname } = await import("node:path");
+    const envPath = process.env.WEIBO_ENV_PATH;
+    if (!envPath) {
+      throw new Error("Environment path is not configured.");
+    }
+    await shell.openPath(dirname(envPath));
+    return { ok: true };
+  });
+
   ipcMain.handle("get-comments-pipeline", async (event, { postUrl }) => {
     return scrapeService.runCommentScrape(postUrl);
   });

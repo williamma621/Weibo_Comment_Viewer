@@ -1,5 +1,4 @@
 import nodemailer from 'nodemailer';
-import puppeteer from 'puppeteer';
 import { getMailConfig } from './appConfig.js';
 
 let transporter;
@@ -18,30 +17,17 @@ function getTransporter() {
 
   return transporter;
 }
-const htmlToPdfBuffer = async (html) => {
-  const browser = await puppeteer.launch({ headless: "new" });
-  const page = await browser.newPage();
-  await page.setContent(html, { waitUntil: 'networkidle0' });
-  const pdf = await page.pdf({ format: 'A4', margin: { top: '8mm', bottom: '8mm' } });
-  await browser.close();
-  return pdf;
-};
 
 
 export const sendMail = async (email, data) => {
   const config = getMailConfig();
   const htmlBody = generateEmail(data);
-  // const pdfBuffer = await htmlToPdfBuffer(htmlBody);
   console.log("123456789", data)
   return getTransporter().sendMail({
     from: config.from || config.user,
     to: email,
     subject: "微博检测报告 Weibo Monitoring",
-    // text: "Working!",
     html: htmlBody
-    // attachments: [{filename: 'weibo_report.pdf',content: pdfBuffer}]
-    // attachments: [{filename: 'weibo_report.pdf',content: pdfBuffer}]
-
   });
 }
 

@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const ENV_FILE_PATH = path.resolve(process.cwd(), ".env");
+const DEFAULT_ENV_PATH = path.resolve(process.cwd(), ".env");
+const ENV_FILE_PATH = process.env.WEIBO_ENV_PATH
+  ? path.resolve(process.env.WEIBO_ENV_PATH)
+  : DEFAULT_ENV_PATH;
 
 loadDotEnvFile();
 

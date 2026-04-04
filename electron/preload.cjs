@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("api", {
+  openUserDataFolder: () => ipcRenderer.invoke("open-user-data-folder"),
   loginWeibo: () => ipcRenderer.invoke("login-weibo"),
   getCommentsPipeline: (data) => ipcRenderer.invoke("get-comments-pipeline", data),
   deepseekAnalysisPipeline: (data) => ipcRenderer.invoke("deepseek-analysis-pipeline", data),

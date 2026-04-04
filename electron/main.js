@@ -19,6 +19,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const isDev = !app.isPackaged;
 const DATA_PATH = path.join(app.getPath('userData'), 'scrapes');
+const USER_ENV_PATH = path.join(app.getPath("userData"), ".env");
 const SCHEDULE_PATTERN_PATH = path.join(app.getPath("appData"), "weibo-comment-viewer", "saved-schedule-patterns");
 const ACTIVE_SCHEDULE_PATH = path.join(app.getPath("appData"), "weibo-comment-viewer", "active-schedules");
 const TRAY_ICON_PATH = path.join(__dirname, "assets", "trayTemplate.png");
@@ -41,6 +42,8 @@ let mainWindow;
 let tray;
 let isQuitting = false;
 let powerSaveBlockerId = null;
+
+process.env.WEIBO_ENV_PATH = USER_ENV_PATH;
 
 function hasActiveSchedules() {
   return getActiveSchedules().length > 0;
