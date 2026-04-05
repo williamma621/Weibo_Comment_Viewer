@@ -1,14 +1,25 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const DEFAULT_ENV_PATH = path.resolve(process.cwd(), ".env");
-const ENV_FILE_PATH = process.env.WEIBO_ENV_PATH
-  ? path.resolve(process.env.WEIBO_ENV_PATH)
-  : DEFAULT_ENV_PATH;
+let envLoaded = false;
 
-loadDotEnvFile();
+function resolveEnvPath() {
+  const defaultPath = path.resolve(process.cwd(), ".env");
+  return process.env.WEIBO_ENV_PATH
+    ? path.resolve(process.env.WEIBO_ENV_PATH)
+    : defaultPath;
+}
+
+function ensureEnvLoaded() {
+  if (envLoaded) {
+    return;
+  }
+  loadDotEnvFile();
+  envLoaded = true;
+}
 
 function loadDotEnvFile() {
+  const ENV_FILE_PATH = resolveEnvPath();
   if (!fs.existsSync(ENV_FILE_PATH)) {
     return;
   }
@@ -48,6 +59,7 @@ function readOptionalEnv(name, fallback = "") {
 }
 
 export function getDeepseekConfig() {
+  ensureEnvLoaded();
   return {
     apiKey: readRequiredEnv("DEEPSEEK_API_KEY"),
     baseURL: readOptionalEnv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
@@ -55,6 +67,7 @@ export function getDeepseekConfig() {
 }
 
 export function getMailConfig() {
+  ensureEnvLoaded();
   return {
     service: readOptionalEnv("SMTP_SERVICE", "gmail"),
     user: readRequiredEnv("SMTP_USER"),
