@@ -20,6 +20,7 @@ export default function Dashboard() {
 
   if (!data) return <div>Loading analysis...</div>;
   const duplicatedComments = data.comments.filter((comment) => (comment.freq ?? 0) >= 3);
+  const negativeComments = data.comments.filter((comment) => comment.sentiment !== "POS");
 
   return (
     <div className="relative">
@@ -76,6 +77,16 @@ export default function Dashboard() {
             </div>
             <CommentTable data={duplicatedComments} />
           </section>
+
+          <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-soft">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="text-lg font-bold text-slate-900">负面/混合情绪评论</h2>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
+                {negativeComments.length} entries
+              </span>
+            </div>
+            <CommentTable data={negativeComments} />
+          </section>
         </div>
       </div>
 
@@ -88,4 +99,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
