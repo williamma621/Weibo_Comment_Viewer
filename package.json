@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "concurrently \"vite\" \"electron .\"",
     "build": "vite build && electron-builder",
+    "build:mac": "vite build && electron-builder --mac --universal",
+    "build:mac:dir": "vite build && electron-builder --mac --universal --dir",
     "start": "electron ."
   },
   "build": {
@@ -26,7 +28,14 @@
       "target": "portable"
     },
     "mac": {
-      "target": "dmg"
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ]
     }
   },
   "dependencies": {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 const SCRAPE_HISTORY_CHANGED_EVENT = "scrape-history-changed";
@@ -50,7 +50,8 @@ export default function Home() {
     }
   };
 
-    return (
+
+  return (
 // Home.jsx
 <div className="flex flex-col items-center justify-center min-h-[60vh] max-w-2xl mx-auto px-6">
   <h1 className="text-5xl font-extrabold text-slate-900 mb-4 tracking-tight">
@@ -60,7 +61,7 @@ export default function Home() {
     请在下方输入链接
   </p>
 
-  <div className="mb-4 flex w-full justify-end">
+    <div className="mb-4 flex w-full justify-end">
     <button
       onClick={handleLogin}
       disabled={loginLoading || loading}
@@ -88,6 +89,5 @@ export default function Home() {
   </div>
 </div>  
 
-  )
-}
+)}
 
