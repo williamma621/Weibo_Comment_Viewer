@@ -9,8 +9,8 @@
   "scripts": {
     "dev": "concurrently \"vite\" \"electron .\"",
     "build": "vite build && electron-builder",
-    "build:mac": "vite build && electron-builder --mac --universal",
-    "build:mac:dir": "vite build && electron-builder --mac --universal --dir",
+    "build:mac": "vite build && electron-builder --mac --universal --publish never",
+    "build:mac:dir": "vite build && electron-builder --mac --universal --dir  --publish never",
     "start": "electron ."
   },
   "build": {
