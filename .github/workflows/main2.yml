@@ -1,0 +1,71 @@
+name: mac intel smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build universal mac app
+        run: npm run build:mac
+
+      - name: Upload mac artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-release
+          path: release/*.dmg
+          if-no-files-found: error
+
+  smoke-intel:
+    needs: build-mac
+    runs-on: macos-15-large
+    steps:
+      - name: Download mac artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-release
+          path: artifact
+
+      - name: Mount dmg
+        shell: bash
+        run: |
+          DMG="$(find artifact -name '*.dmg' | head -n 1)"
+          hdiutil attach "$DMG"
+
+      - name: Find app bundle
+        shell: bash
+        run: |
+          APP="$(find /Volumes -maxdepth 2 -name '*.app' | head -n 1)"
+          echo "APP_PATH=$APP" >> "$GITHUB_ENV"
+          test -n "$APP"
+
+      - name: Launch app
+        shell: bash
+        run: |
+          open "$APP_PATH"
+          sleep 15
+
+      - name: Verify process started
+        shell: bash
+        run: |
+          pgrep -if "Weibo Comment Viewer|Electron" || exit 1
+
+      - name: Unmount dmg
+        if: always()
+        shell: bash
+        run: |
+          VOLUME="$(dirname "$APP_PATH")"
+          hdiutil detach "$VOLUME" || true
