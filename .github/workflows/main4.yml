@@ -52,16 +52,20 @@ jobs:
           echo "APP_PATH=$APP" >> "$GITHUB_ENV"
           test -n "$APP"
 
-      - name: Launch app
+      - name: Launch app executable directly
         shell: bash
         run: |
-          open "$APP_PATH"
+          APP_EXECUTABLE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Contents/Info.plist")
+          echo "APP_EXECUTABLE=$APP_EXECUTABLE" >> "$GITHUB_ENV"
+          "$APP_PATH/Contents/MacOS/$APP_EXECUTABLE" &
+          echo $! > app.pid
           sleep 15
 
-      - name: Verify process started
+      - name: Verify process is still running
         shell: bash
         run: |
-          pgrep -if "Weibo Comment Viewer|Electron" || exit 1
+          PID="$(cat app.pid)"
+          kill -0 "$PID"
 
       - name: Unmount dmg
         if: always()
