@@ -39,7 +39,7 @@ export const formatComments = (comments) => {
     });
 
     // 2) Secondary comments
-    const children = c.comments;
+    const children = c._all_replies ?? c.comments;
     if (Array.isArray(children) && children.length > 0) {
       children.forEach(cc => {
         rows.push({
@@ -52,8 +52,7 @@ export const formatComments = (comments) => {
     }
   });
 
-  // Sort by date (descending) - equivalent to sort_values in Pandas
-  return rows //.sort((a, b) => b.posted_time - a.posted_time); 
+  return rows
 };
 
 export const formatTopComments = (comments, limit = 5) => {
